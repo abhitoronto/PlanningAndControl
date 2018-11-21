@@ -21,6 +21,7 @@
 
 
 #define USE_SIM
+#define MAP_WATCHDOG_TIME 10
 #define TAGID 0
 
 //Map Struct
@@ -32,21 +33,18 @@ typedef struct
     uint32_t height;
     uint32_t size;
     std::vector<int8_t> data;
+    bool valid;
 } MapInfo_t;
-
-
 
 //Global variables
 ros::Publisher marker_pub;
 MapInfo_t gridMap;
+bool mapWatchDogCalled;
 #ifdef USE_SIM
 ros::Publisher pose_publisher;
 tf::TransformBroadcaster *br;
 tf::Transform *tform;
-#endif
 
-
-#ifdef USE_SIM
 //Callback function for the Position topic (SIMULATION)
 void sim_pose_callback(const gazebo_msgs::ModelStates& msg)
 {
@@ -59,14 +57,14 @@ void sim_pose_callback(const gazebo_msgs::ModelStates& msg)
 	pose_publisher.publish(curpose);
 
 	// send transform
-	br = new tf::TransformBroadcaster;
-	tform = new tf::Transform;
-	tform->setOrigin( tf::Vector3(msg.pose[1].position.x, msg.pose[1].position.y, 0) );
-	tf::Quaternion q;
-	q.setEulerZYX(tf::getYaw(msg.pose[1].orientation), 0, 0);
-	tform->setRotation( q );
-	*tform = tform->inverse();
-	br->sendTransform(tf::StampedTransform(*tform, ros::Time::now(), "base_footprint", "map"));
+	// br = new tf::TransformBroadcaster;
+	// tform = new tf::Transform;
+	// tform->setOrigin( tf::Vector3(msg.pose[1].position.x, msg.pose[1].position.y, 0) );
+	// tf::Quaternion q;
+	// q.setEulerZYX(tf::getYaw(msg.pose[1].orientation), 0, 0);
+	// tform->setRotation( q );
+	// *tform = tform->inverse();
+	// br->sendTransform(tf::StampedTransform(*tform, ros::Time::now(), "base_footprint", "map"));
 }
 #endif
 
@@ -80,6 +78,13 @@ void pose_callback(const geometry_msgs::PoseWithCovarianceStamped & msg)
  	double Yaw = tf::getYaw(msg.pose.pose.orientation); // Robot Yaw
 
 	std::cout << "X: " << X << ", Y: " << Y << ", Yaw: " << Yaw << std::endl ;
+}
+
+// Watch dog timer for the /map topic
+// The program will exit if map is not received
+void mapTimerCallback(const ros::TimerEvent& e)
+{
+    mapWatchDogCalled = true;
 }
 
 //Example of drawing a curve
@@ -144,6 +149,7 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
         // else   
         //     printf("0");
     }
+    gridMap.valid = true;
 }
 
 
@@ -152,6 +158,9 @@ int main(int argc, char **argv)
 	//Initialize the ROS framework
     ros::init(argc,argv,"main_control");
     ros::NodeHandle n;
+
+    // Init MapInfo struct. Doing this before subscriber is initialized
+    gridMap.valid = false;
 
     //Subscribe to the desired topics and assign callbacks
     ROS_INFO("MAIN ENTER");
@@ -168,26 +177,38 @@ int main(int argc, char **argv)
     pose_publisher = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/indoor_pos", 1, true);
 #endif
 
+    // Init the map watch dog flag
+    mapWatchDogCalled = false;
+
     //Velocity control variable
     geometry_msgs::Twist vel;
 
+    ros::Timer timer = n.createTimer(ros::Duration(MAP_WATCHDOG_TIME), mapTimerCallback);
+
     //Set the loop rate
     ros::Rate loop_rate(20);    //20Hz update rate
-	
 
     while (ros::ok())
     {
     	loop_rate.sleep(); //Maintain the loop rate
     	ros::spinOnce();   //Check for new messages
-
-	 //Draw Curves
-         drawCurve(1);
-         drawCurve(2);
-         drawCurve(4);
     
+        // if the first map node has not arived, keep on looping
+        if(!gridMap.valid)
+        {
+            if(mapWatchDogCalled)
+            {
+                ROS_INFO("/map topic not received in time.");
+                ROS_INFO("EXITING!");
+                return 0;
+            }
+            continue;
+        }
+
     	//Main loop code goes here:
-    	vel.linear.x = 0.1; // set linear speed
-    	vel.angular.z = 0.3; // set angular speed
+    	// vel.linear.x = 0.1; // set linear speed
+    	// vel.angular.z = 0.3; // set angular speed
+
 
     	velocity_publisher.publish(vel); // Publish the command velocity
     }
