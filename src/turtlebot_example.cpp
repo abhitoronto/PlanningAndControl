@@ -152,7 +152,6 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
     gridMap.valid = true;
 }
 
-
 int main(int argc, char **argv)
 {
 	//Initialize the ROS framework
@@ -181,7 +180,7 @@ int main(int argc, char **argv)
     mapWatchDogCalled = false;
 
     //Velocity control variable
-    geometry_msgs::Twist vel;
+    // geometry_msgs::Twist vel;
 
     ros::Timer timer = n.createTimer(ros::Duration(MAP_WATCHDOG_TIME), mapTimerCallback);
 
@@ -210,7 +209,19 @@ int main(int argc, char **argv)
     	// vel.angular.z = 0.3; // set angular speed
 
 
-    	velocity_publisher.publish(vel); // Publish the command velocity
+        // if robot has reached goal and there is more targets in the goals array
+            // Run Planning function based on the map given
+                // Pass it current position and goal
+
+        // elseif robot has reached goal 
+            //break loop
+
+        // Get current target
+
+        // Call controller to take the robot go to the target
+
+        // Publish velocity that you get from controller
+        // velocity_publisher.publish(vel); // Publish the command velocity
     }
 
     return 0;
