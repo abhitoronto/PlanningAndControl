@@ -36,10 +36,22 @@ typedef struct
     bool valid;
 } MapInfo_t;
 
+// 2D pose Struct
+typedef struct
+{
+    double x;
+    double y;
+    double angle;
+} pose2d_t;
+
 //Global variables
 ros::Publisher marker_pub;
 MapInfo_t gridMap;
 bool mapWatchDogCalled;
+pose2d_t currPose;
+std::vector<pose2d_t> goals;
+int currGoal;
+
 #ifdef USE_SIM
 ros::Publisher pose_publisher;
 tf::TransformBroadcaster *br;
@@ -73,11 +85,14 @@ void sim_pose_callback(const gazebo_msgs::ModelStates& msg)
 void pose_callback(const geometry_msgs::PoseWithCovarianceStamped & msg)
 {
 	//This function is called when a new position message is received
-	double X = msg.pose.pose.position.x; // Robot X psotition
-	double Y = msg.pose.pose.position.y; // Robot Y psotition
- 	double Yaw = tf::getYaw(msg.pose.pose.orientation); // Robot Yaw
+	currPose.x = msg.pose.pose.position.x; // Robot X psotition
+	currPose.y = msg.pose.pose.position.y; // Robot Y psotition
+ 	currPose.angle = tf::getYaw(msg.pose.pose.orientation); // Robot Yaw
 
-	std::cout << "X: " << X << ", Y: " << Y << ", Yaw: " << Yaw << std::endl ;
+	// std::cout << "X: " << currPose.x
+    //           << ", Y: " << currPose.y
+    //           << ", Yaw: " << currPose.angle 
+    //           << std::endl ;
 }
 
 // Watch dog timer for the /map topic
@@ -152,6 +167,27 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
     gridMap.valid = true;
 }
 
+void initGoals()
+{
+    // Let the current location be the first goal
+    goals.push_back( currPose );
+    pose2d_t tempPose;
+    tempPose.x = 4.0f; tempPose.y = 0.f; tempPose.angle = 0.f;
+    goals.push_back( tempPose );
+    tempPose.x = 8.0f; tempPose.y = -4.0f; tempPose.angle = 3.14f;
+    goals.push_back( tempPose );
+    tempPose.x = 8.0f; tempPose.y = 0.f; tempPose.angle = -1.57f;
+    goals.push_back( tempPose );
+
+    // Initalize current goal number to be 0
+    currGoal = 0;
+}
+
+double get2dDistance(pose2d_t p1, pose2d_t p2)
+{
+    return sqrt( (p1.x - p2.x)*(p1.x - p2.x) + (p1.y - p2.y)*(p1.y - p2.y) );
+}
+
 int main(int argc, char **argv)
 {
 	//Initialize the ROS framework
@@ -178,6 +214,9 @@ int main(int argc, char **argv)
 
     // Init the map watch dog flag
     mapWatchDogCalled = false;
+
+    //Init goal locations
+    initGoals();
 
     //Velocity control variable
     // geometry_msgs::Twist vel;
@@ -209,13 +248,29 @@ int main(int argc, char **argv)
     	// vel.angular.z = 0.3; // set angular speed
 
         // Get current goal
-        // if robot has reached goal and there is more targets in the goals array
-            // Run Planning function on next goal based on the map given
-                // Pass it current position and goal
+        // if robot has reached goal
+        if( get2dDistance(goals[currGoal], currPose) <= 0.25 )
+        {
+            //if there is more targets in the goals array
+            if(currGoal < goals.size()-1)
+            {
                 // increment current goal
+                currGoal++;
+                ROS_INFO("NEXT GOAL: %f,%f,%f", goals[currGoal].x,
+                                                goals[currGoal].y,
+                                                goals[currGoal].angle); 
+                // Run Planning function based on the map given
+                    // Pass it current position and goal
+                    // In return get waypoints
+            }
 
-        // elseif robot has reached goal 
-            //break loop
+            // else break loop
+            else
+            {
+                ROS_INFO("All Goals reached!");
+                break;
+            }
+        }
 
         // Get current waypoint
         // if robot has reached waypoint
