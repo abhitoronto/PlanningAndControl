@@ -169,7 +169,7 @@ int main(int argc, char **argv)
     //Setup topics to Publish from this node
     ros::Publisher velocity_publisher = n.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi", 1);
     marker_pub = n.advertise<visualization_msgs::Marker>("visualization_marker", 1, true);
-  
+
 #ifdef USE_SIM
     //Subscribe to the desired topics and assign callbacks
     ros::Subscriber sim_pose_sub = n.subscribe("/gazebo/model_states", 1, sim_pose_callback);
@@ -208,17 +208,21 @@ int main(int argc, char **argv)
     	// vel.linear.x = 0.1; // set linear speed
     	// vel.angular.z = 0.3; // set angular speed
 
-
+        // Get current goal
         // if robot has reached goal and there is more targets in the goals array
-            // Run Planning function based on the map given
+            // Run Planning function on next goal based on the map given
                 // Pass it current position and goal
+                // increment current goal
 
         // elseif robot has reached goal 
             //break loop
 
-        // Get current target
+        // Get current waypoint
+        // if robot has reached waypoint
+            // increment waypoint
 
-        // Call controller to take the robot go to the target
+        // Call controller with the current waypoint
+            // Controller returns current velocity to be published
 
         // Publish velocity that you get from controller
         // velocity_publisher.publish(vel); // Publish the command velocity
