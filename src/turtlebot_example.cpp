@@ -212,8 +212,9 @@ int main(int argc, char **argv)
     pose_publisher = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/indoor_pos", 1, true);
 #endif
 
-    // Init the map watch dog flag
+    // Init global variables
     mapWatchDogCalled = false;
+    currPose.x = 0.0; currPose.y = 0.0; currPose.angle = 0.0;
 
     //Init goal locations
     initGoals();
@@ -254,6 +255,9 @@ int main(int argc, char **argv)
             //if there is more targets in the goals array
             if(currGoal < goals.size()-1)
             {
+                ROS_INFO("REACHED GOAL: %f,%f,%f", goals[currGoal].x,
+                                                goals[currGoal].y,
+                                                goals[currGoal].angle);
                 // increment current goal
                 currGoal++;
                 ROS_INFO("NEXT GOAL: %f,%f,%f", goals[currGoal].x,
