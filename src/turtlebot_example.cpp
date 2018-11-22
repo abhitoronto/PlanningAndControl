@@ -19,6 +19,10 @@
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 
+// STD libs
+#include <stdlib.h>
+#include <time.h>
+
 
 #define USE_SIM
 #define MAP_WATCHDOG_TIME 10
@@ -143,6 +147,20 @@ void drawCurve(int k)
 
 }
 
+void printMap(const MapInfo_t& map)
+{
+    for (uint32_t it = 0; it < gridMap.size; it++)
+    {
+        if (it%map.width == 0)
+            printf("\n");
+        if (map.data[it] > 0)
+            printf("1");
+        else   
+            printf("0");
+    }
+    printf("\n");
+}
+
 //Callback function for the map
 void map_callback(const nav_msgs::OccupancyGrid& msg)
 {
@@ -158,15 +176,10 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
     for (uint32_t it = 0; it < gridMap.size; it++)
     {
         gridMap.data[it] = msg.data[it];
-        //print the map captured
-        // if (gridMap.data[it] > 0 && it%gridMap.width != 0)
-        //     printf("1");
-        // else if (gridMap.data[it] > 0)
-        //     printf("\n1");
-        // else   
-        //     printf("0");
     }
     gridMap.valid = true;
+    //print the map captured
+    printMap(gridMap);
 }
 
 void initGoals()
@@ -316,11 +329,41 @@ bool plan2dPath(const pose2d_t& currPose,
                 const pose2d_t& goalPose, 
                 std::vector <pose2d_t>& wpArray,
                 const MapInfo_t& map,
-                int numRandPoints,
-                int numNN)
+                uint32_t numRandPoints,
+                uint32_t numNN)
 {
     // Generate Random points in the map and store them
+    std::vector<uint32_t> randMapIdx;
+    std::vector<uint8_t> wpGrid(map.size, 0);
 
+    srand(time(NULL));
+    ROS_INFO("Printing random indices");
+    for (uint32_t count = 0; count < numRandPoints; )
+    {
+        uint32_t randIdx = rand() % map.size;
+        if (map.data[randIdx] > 0 || wpGrid[randIdx] > 0 )
+        {
+            continue;
+        }
+        randMapIdx.push_back(randIdx);
+        wpGrid[randIdx] = 1;
+        count++;
+    }
+
+    // Print the wp map for debugging
+    ROS_INFO("MAP of wayPoints");
+    for (uint32_t it = 0; it < map.size; it++)
+    {
+        if (it%map.width == 0)
+            printf("\n");
+        if (wpGrid[it] + map.data[it]  > 0 )
+            printf("1");
+        else   
+            printf("0");
+    }
+    printf ("\n");
+    ROS_INFO("Num of random points %ld", randMapIdx.size());
+    
     // iterate through each point
         //find the nearest N neighbours
         // connect to each neighbour and see if it is valid
@@ -330,7 +373,7 @@ bool plan2dPath(const pose2d_t& currPose,
         // NEEDS:
             // matrix of edges with weights
             // Heuristic cost array
-            return true;
+    return true;
 }
  
 int main(int argc, char **argv)
@@ -356,6 +399,9 @@ int main(int argc, char **argv)
     ros::Subscriber sim_pose_sub = n.subscribe("/gazebo/model_states", 1, sim_pose_callback);
     pose_publisher = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/indoor_pos", 1, true);
 #endif
+
+    // Check for messages
+    ros::spinOnce();
 
     // Init global variables
     mapWatchDogCalled = false;
@@ -414,10 +460,8 @@ int main(int argc, char **argv)
                                                 goals[currGoal].angle); 
                 
                 // Run Planning function based on the map given
-                    // Pass it current position and goal
-                    // In return get waypoints
                 wayPoints.clear();
-                plan2dPath(currPose, 
+                plan2dPath(currPose,
                            goals[currGoal], 
                            wayPoints, 
                            gridMap,
