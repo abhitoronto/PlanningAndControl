@@ -23,6 +23,8 @@
 #define USE_SIM
 #define MAP_WATCHDOG_TIME 10
 #define TAGID 0
+#define NUM_NEAREST_NEIGHBOURS 5
+#define NUM_RAND_POINTS 100
 
 //Map Struct
 typedef struct 
@@ -153,7 +155,7 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
     gridMap.size = gridMap.height*gridMap.width;
     gridMap.data.resize(gridMap.size);
 
-    for (int it = 0; it < gridMap.size; it++)
+    for (uint32_t it = 0; it < gridMap.size; it++)
     {
         gridMap.data[it] = msg.data[it];
         //print the map captured
@@ -183,11 +185,154 @@ void initGoals()
     currGoal = 0;
 }
 
+short sgn(int x) { return x >= 0 ? 1 : -1; }
+
+//Bresenham line algorithm (pass empty vectors)
+// Usage: (x0, y0) is the first point and (P1.x, P1.y) is the second point. The calculated
+//        points (x, y) are stored in the x and y vector. x and y should be empty
+//    vectors of integers and shold be defined where this function is called from.
+void bresenham(pose2d_t P0, pose2d_t P1, std::vector<pose2d_t> &line) {
+
+    int dx = abs(P1.x - P0.x);
+    int dy = abs(P1.y - P0.y);
+    int dx2 = P1.x - P0.x;
+    int dy2 = P1.y - P0.y;
+
+//    ROS_INFO("running");
+    const bool s = abs(dy) > abs(dx);
+
+    if (s) {
+        int dx2 = dx;
+        dx = dy;
+        dy = dx2;
+    }
+
+    int inc1 = 2 * dy;
+    int d = inc1 - dx;
+    int inc2 = d - dx;
+
+    line.push_back(P0);
+
+    while (P0.x != P1.x || P0.y != P1.y) {
+        if (s)
+            P0.y += sgn(dy2);
+        else
+            P0.x += sgn(dx2);
+        if (d < 0)
+            d += inc1;
+        else {
+            d += inc2;
+            if (s)
+                P0.x += sgn(dx2);
+            else
+                P0.y += sgn(dy2);
+        }
+
+        //Add point to vector
+        line.push_back(P0);
+    }
+}
+
 double get2dDistance(pose2d_t p1, pose2d_t p2)
 {
     return sqrt( (p1.x - p2.x)*(p1.x - p2.x) + (p1.y - p2.y)*(p1.y - p2.y) );
 }
 
+// p1 - p2
+pose2d_t pose2dDiff(pose2d_t p1, pose2d_t p2)
+{
+    pose2d_t tempPose;
+    tempPose.x = p1.x - p2.x;
+    tempPose.y = p1.y - p2.y;
+    tempPose.angle = 0;
+
+    return tempPose;
+}
+
+//p1 + p2
+pose2d_t pose2dSum(pose2d_t p1, pose2d_t p2)
+{
+    pose2d_t tempPose;
+    tempPose.x = p1.x + p2.x;
+    tempPose.y = p1.y + p2.y;
+    tempPose.angle = 0;
+
+    return tempPose;
+}
+
+pose2d_t getPoseFromMapPoint(const MapInfo_t& map, uint32_t pointIdx)
+{
+    pose2d_t returnPoint;
+    if (pointIdx > map.size)
+    {
+        returnPoint.x = 0.f;
+        returnPoint.y = 0.f;
+        returnPoint.angle = 0.f;
+        ROS_INFO("Pose index %d is out of bound %d", pointIdx, map.size);
+        return returnPoint;
+    }
+
+    // Get x y coordinates of the map point in meters by applying the proper scaling
+    double x_map = static_cast<double>(pointIdx % map.width) * map.resolution;
+    double y_map = static_cast<double>(pointIdx / map.width) * map.resolution;
+
+    // Offset the coordinates with the map origin
+    x_map += map.origin.position.x;
+    y_map += map.origin.position.y;
+
+    returnPoint.x = x_map;
+    returnPoint.y = y_map;
+    returnPoint.angle = 0.f;
+
+    return returnPoint;
+}
+
+uint32_t getMapPointFromPose(const MapInfo_t& map, pose2d_t pose)
+{
+    // Transform pose to get coordinates in the map axes
+    double x_map = pose.x - map.origin.position.x;
+    double y_map = pose.y - map.origin.position.y;
+
+    // Compute the Map coordinates from point
+    uint32_t x_idx = x_map / map.resolution;
+    uint32_t y_idx = y_map / map.resolution;
+
+    uint32_t map_idx = static_cast<uint32_t>(y_idx*map.width + x_idx);
+
+    if (map_idx > map.size)
+    {
+        ROS_INFO("***ERROR*** : Point not present in the map");
+        return 0;
+    }
+
+    return map_idx;
+}
+
+
+// Path planning function
+// Inputs: current position, goal position, map
+// Output: waypoints array
+bool plan2dPath(const pose2d_t& currPose, 
+                const pose2d_t& goalPose, 
+                std::vector <pose2d_t>& wpArray,
+                const MapInfo_t& map,
+                int numRandPoints,
+                int numNN)
+{
+    // Generate Random points in the map and store them
+
+    // iterate through each point
+        //find the nearest N neighbours
+        // connect to each neighbour and see if it is valid
+        // store the valid edges
+    
+    // Run A star on this graph
+        // NEEDS:
+            // matrix of edges with weights
+            // Heuristic cost array
+            return true;
+}
+ 
 int main(int argc, char **argv)
 {
 	//Initialize the ROS framework
@@ -215,6 +360,10 @@ int main(int argc, char **argv)
     // Init global variables
     mapWatchDogCalled = false;
     currPose.x = 0.0; currPose.y = 0.0; currPose.angle = 0.0;
+
+    // Declare Local variables
+    std::vector<pose2d_t> wayPoints;
+    int currWp = 0;
 
     //Init goal locations
     initGoals();
@@ -263,9 +412,18 @@ int main(int argc, char **argv)
                 ROS_INFO("NEXT GOAL: %f,%f,%f", goals[currGoal].x,
                                                 goals[currGoal].y,
                                                 goals[currGoal].angle); 
+                
                 // Run Planning function based on the map given
                     // Pass it current position and goal
                     // In return get waypoints
+                wayPoints.clear();
+                plan2dPath(currPose, 
+                           goals[currGoal], 
+                           wayPoints, 
+                           gridMap,
+                           NUM_RAND_POINTS, 
+                           NUM_NEAREST_NEIGHBOURS);
+                currWp = 0;
             }
 
             // else break loop
