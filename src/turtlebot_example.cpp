@@ -27,8 +27,8 @@
 #define USE_SIM
 #define MAP_WATCHDOG_TIME 10
 #define TAGID 0
-#define NUM_NEAREST_NEIGHBOURS 5
-#define NUM_RAND_POINTS 100
+#define NUM_NEAREST_NEIGHBOURS 7
+#define NUM_RAND_POINTS 10
 
 //Map Struct
 typedef struct 
@@ -201,15 +201,15 @@ void initGoals()
 short sgn(int x) { return x >= 0 ? 1 : -1; }
 
 //Bresenham line algorithm (pass empty vectors)
-// Usage: (x0, y0) is the first point and (P1.x, P1.y) is the second point. The calculated
+// Usage: (x0, y0) is the first point and (x1, y1) is the second point. The calculated
 //        points (x, y) are stored in the x and y vector. x and y should be empty
 //    vectors of integers and shold be defined where this function is called from.
-void bresenham(pose2d_t P0, pose2d_t P1, std::vector<pose2d_t> &line) {
+void bresenham(int x0, int y0, int x1, int y1, std::vector<int> &x, std::vector<int> &y) {
 
-    int dx = abs(P1.x - P0.x);
-    int dy = abs(P1.y - P0.y);
-    int dx2 = P1.x - P0.x;
-    int dy2 = P1.y - P0.y;
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int dx2 = x1 - x0;
+    int dy2 = y1 - y0;
 
 //    ROS_INFO("running");
     const bool s = abs(dy) > abs(dx);
@@ -224,25 +224,27 @@ void bresenham(pose2d_t P0, pose2d_t P1, std::vector<pose2d_t> &line) {
     int d = inc1 - dx;
     int inc2 = d - dx;
 
-    line.push_back(P0);
+    x.push_back(x0);
+    y.push_back(y0);
 
-    while (P0.x != P1.x || P0.y != P1.y) {
+    while (x0 != x1 || y0 != y1) {
         if (s)
-            P0.y += sgn(dy2);
+            y0 += sgn(dy2);
         else
-            P0.x += sgn(dx2);
+            x0 += sgn(dx2);
         if (d < 0)
             d += inc1;
         else {
             d += inc2;
             if (s)
-                P0.x += sgn(dx2);
+                x0 += sgn(dx2);
             else
-                P0.y += sgn(dy2);
+                y0 += sgn(dy2);
         }
 
         //Add point to vector
-        line.push_back(P0);
+        x.push_back(x0);
+        y.push_back(y0);
     }
 }
 
@@ -321,7 +323,6 @@ uint32_t getMapPointFromPose(const MapInfo_t& map, pose2d_t pose)
     return map_idx;
 }
 
-
 // Path planning function
 // Inputs: current position, goal position, map
 // Output: waypoints array
@@ -333,11 +334,15 @@ bool plan2dPath(const pose2d_t& currPose,
                 uint32_t numNN)
 {
     // Generate Random points in the map and store them
-    std::vector<uint32_t> randMapIdx;
+    std::vector<uint32_t> randWpIdx;
     std::vector<uint8_t> wpGrid(map.size, 0);
+    
+    // Starting point is the first waypoint
+    uint32_t startIdx = getMapPointFromPose(map, currPose);
+    randWpIdx.push_back(startIdx);
+    wpGrid[startIdx] = 1;
 
     srand(time(NULL));
-    ROS_INFO("Printing random indices");
     for (uint32_t count = 0; count < numRandPoints; )
     {
         uint32_t randIdx = rand() % map.size;
@@ -345,10 +350,15 @@ bool plan2dPath(const pose2d_t& currPose,
         {
             continue;
         }
-        randMapIdx.push_back(randIdx);
+        randWpIdx.push_back(randIdx);
         wpGrid[randIdx] = 1;
         count++;
     }
+
+    // Goal is the last waypoint 
+    uint32_t goalIdx = getMapPointFromPose(map, goalPose);
+    randWpIdx.push_back(goalIdx);
+    wpGrid[goalIdx] = 1;
 
     // Print the wp map for debugging
     ROS_INFO("MAP of wayPoints");
@@ -362,12 +372,69 @@ bool plan2dPath(const pose2d_t& currPose,
             printf("0");
     }
     printf ("\n");
-    ROS_INFO("Num of random points %ld", randMapIdx.size());
+    ROS_INFO("Num of random points %ld", randWpIdx.size());
     
-    // iterate through each point
-        //find the nearest N neighbours
-        // connect to each neighbour and see if it is valid
-        // store the valid edges
+    // Vector containing weights 
+    std::vector<double> edgeWeights(randWpIdx.size()*randWpIdx.size(), 0.f);
+    // iterate through each point and generate Graph
+    for (uint32_t out_it = 0; out_it < randWpIdx.size(); out_it++)
+    {
+        pose2d_t curPose = getPoseFromMapPoint(map, randWpIdx[out_it]);
+
+        // Vector containing weights temp
+        std::vector<double> edgeWeightsTemp(randWpIdx.size(), 0.f);
+        
+        // Find distance with every single point
+        for (uint32_t in_it = 0; in_it < randWpIdx.size(); in_it++)
+        {
+            if (in_it == out_it)
+                continue;
+            
+            // find distance between p1 and p2
+            pose2d_t in_pose = getPoseFromMapPoint(map, randWpIdx[in_it]);
+            double distance = get2dDistance( in_pose, curPose);
+            
+            // Add this distance to edge matrix
+            edgeWeightsTemp[in_it] = distance;
+        }
+
+        // finds a lowest points greater than current lowest
+        double currentLowest = 0.f;
+        for (uint32_t NNit = 0; NNit < numNN; NNit++)
+        {
+            double lowestDistance = 150.0;
+            uint32_t lowestIdx = 0;
+            // Each iteration goes through all indices and check if the current index
+            // is the lowest while being greater than current lowest
+            for (uint32_t in_it = 0; in_it < randWpIdx.size(); in_it++)
+            {
+                if (in_it == out_it)
+                    continue;
+                
+                if(edgeWeightsTemp[in_it] <= lowestDistance &&
+                   edgeWeightsTemp[in_it] > currentLowest)
+                {
+                    lowestIdx = in_it;
+                    lowestDistance = edgeWeightsTemp[in_it];
+                }
+            }
+            // Only the points that are found to be the lowest are put into this weights matrix
+            edgeWeights[out_it*randWpIdx.size() + lowestIdx] = lowestDistance;
+            currentLowest = lowestDistance;
+        }
+        // TODO: Check if the edges with weights don't collides with a obstacles
+            // Bresenham stuff here
+    }
+
+    // Print the weights array
+    for (uint32_t out_it = 0; out_it < randWpIdx.size(); out_it++)
+    {
+        printf("\n");
+        for (uint32_t in_it = 0; in_it < randWpIdx.size(); in_it++)
+        {
+            printf(" %f", edgeWeights[out_it*randWpIdx.size() + in_it]);
+        }
+    }
     
     // Run A star on this graph
         // NEEDS:
@@ -375,7 +442,7 @@ bool plan2dPath(const pose2d_t& currPose,
             // Heuristic cost array
     return true;
 }
- 
+
 int main(int argc, char **argv)
 {
 	//Initialize the ROS framework
