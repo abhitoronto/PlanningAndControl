@@ -72,6 +72,7 @@
       <background>0.7 0.7 0.7 1</background>
       <shadows>1</shadows>
     </scene>
+    <!--
     <model name='mobile_base'>
       <link name='base_footprint'>
         <pose>0 0 0 0 -0 0</pose>
@@ -1047,6 +1048,7 @@
       </plugin>
       <pose>0 0 0 0 -0 0</pose>
     </model>
+    -->
     <state world_name='default'>
       <sim_time>141 110000000</sim_time>
       <real_time>141 255018467</real_time>
@@ -1087,6 +1089,7 @@
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
+      
       <model name='mobile_base'>
         <pose>0.002707 0.020934 -0.001708 0.00112 -0.007848 -0.023678</pose>
         <link name='base_footprint'>
