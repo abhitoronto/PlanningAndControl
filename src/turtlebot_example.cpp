@@ -18,20 +18,25 @@
 #include <nav_msgs/OccupancyGrid.h>
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+// Eigen Specific includes
+#include <Eigen/Dense>
+#include <unsupported/Eigen/MatrixFunctions>
 
 // STD libs
 #include <stdlib.h>
 #include <time.h>
 
-
+// Definitions
 #define USE_SIM
 #define MAP_WATCHDOG_TIME 10
 #define TAGID 0
 #define NUM_NEAREST_NEIGHBOURS 7
 #define NUM_RAND_POINTS 10
 
-//Map Struct
-typedef struct 
+using namespace Eigen;
+
+// Map Struct
+typedef struct
 {
     geometry_msgs::Pose origin;
     float resolution;
@@ -333,7 +338,7 @@ bool plan2dPath(const pose2d_t& currPose,
                 uint32_t numRandPoints,
                 uint32_t numNN)
 {
-    // Generate Random points in the map and store them
+// Generate Random points in the map and store them
     std::vector<uint32_t> randWpIdx;
     std::vector<uint8_t> wpGrid(map.size, 0);
     
