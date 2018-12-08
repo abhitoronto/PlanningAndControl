@@ -10,6 +10,8 @@
 // //////////////////////////////////////////////////////////
 
 #include <ros/ros.h>
+#include <Eigen/Dense>
+#include <unsupported/Eigen/MatrixFunctions>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>
 #include <tf/transform_datatypes.h>
@@ -19,16 +21,18 @@
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 
+
 // STD libs
 #include <stdlib.h>
 #include <time.h>
-
 
 #define USE_SIM
 #define MAP_WATCHDOG_TIME 10
 #define TAGID 0
 #define NUM_NEAREST_NEIGHBOURS 7
 #define NUM_RAND_POINTS 10
+
+using namespace Eigen;
 
 //Map Struct
 typedef struct 
@@ -74,15 +78,31 @@ void sim_pose_callback(const gazebo_msgs::ModelStates& msg)
 	curpose.pose.pose.orientation = msg.pose[1].orientation;
 	pose_publisher.publish(curpose);
 
+	currPose.x = msg.pose[1].position.x; // Robot X psotition
+	currPose.y = msg.pose[1].position.y; // Robot Y psotition
+ 	currPose.angle = msg.pose[1].orientation.z; // Robot Yaw
+
 	// send transform
-	// br = new tf::TransformBroadcaster;
-	// tform = new tf::Transform;
-	// tform->setOrigin( tf::Vector3(msg.pose[1].position.x, msg.pose[1].position.y, 0) );
-	// tf::Quaternion q;
-	// q.setEulerZYX(tf::getYaw(msg.pose[1].orientation), 0, 0);
-	// tform->setRotation( q );
-	// *tform = tform->inverse();
-	// br->sendTransform(tf::StampedTransform(*tform, ros::Time::now(), "base_footprint", "map"));
+	br = new tf::TransformBroadcaster;
+	tform = new tf::Transform;
+	tform->setOrigin( tf::Vector3(msg.pose[1].position.x, msg.pose[1].position.y, 0) );
+	tf::Quaternion q;
+	q.setEulerZYX(tf::getYaw(msg.pose[1].orientation), 0, 0);
+	tform->setRotation( q );
+	*tform = tform->inverse();
+	br->sendTransform(tf::StampedTransform(*tform, ros::Time::now(), "base_footprint", "map"));
+
+	double tempAngle = (tf::getYaw(msg.pose[1].orientation)); // Robot Yaw
+
+	if (currPose.angle < 0)
+	{
+		ROS_INFO("Angle Wrap\n");
+		currPose.angle = tempAngle + 6.2332;
+	}
+	else
+	{
+		currPose.angle = tempAngle;
+	}
 }
 #endif
 
@@ -443,6 +463,26 @@ bool plan2dPath(const pose2d_t& currPose,
     return true;
 }
 
+
+void robotController(const pose2d_t& waypoint, geometry_msgs::Twist &move_cmd, float goal_angle)
+{
+	
+        move_cmd.linear.x = 0;
+
+	if (fabs(currPose.angle - goal_angle) < 0.1) 
+	{
+		move_cmd.angular.z = 0;
+		return;
+	}
+
+	
+	if ((currPose.angle - goal_angle) > 0.05) 
+		move_cmd.angular.z = -0.05*fabs(currPose.angle - goal_angle);
+	if ((currPose.angle - goal_angle) < 0.05) 
+		move_cmd.angular.z = 0.05*fabs(currPose.angle - goal_angle);
+
+}
+
 int main(int argc, char **argv)
 {
 	//Initialize the ROS framework
@@ -551,9 +591,56 @@ int main(int argc, char **argv)
 
         // Call controller with the current waypoint
             // Controller returns current velocity to be published
+	pose2d_t samplePoint;
+	samplePoint.x = 0;
+	samplePoint.y = 4;
+	
+	geometry_msgs::Twist move_cmd;
+
+	float goal_angle;
+	if (samplePoint.x == currPose.x)
+	{
+		if (samplePoint.y > currPose.y)
+			goal_angle = 1.57;
+		else
+			goal_angle = -1.57;
+	}
+	else
+	{
+		goal_angle = atan((samplePoint.y - currPose.y)/(samplePoint.x - currPose.x));
+		//goal_angle = 1.57;
+	}
+
+	while (fabs(currPose.angle - goal_angle) > 0.1)
+	{
+		ros::spinOnce();   //Check for new messages
+		robotController(samplePoint, move_cmd, goal_angle);
+		velocity_publisher.publish(move_cmd); // Publish the command velocity
+		float difference = fabs(currPose.angle - goal_angle);
+		ROS_INFO("Current Angle: %f\n Angle Difference: %f\n", currPose.angle, difference);
+		ros::spinOnce();
+	}
+
+	int stepsize = 100;
+	float stepsizeFloat = float(stepsize);
+	float x_dist = samplePoint.x - currPose.x;
+	float y_dist = samplePoint.y - currPose.y;
+
+	while(fabs(currPose.x - samplePoint.x) > 0.1 || fabs((currPose.y - samplePoint.y) > 0.1))
+	{
+		ros::spinOnce();   //Check for new messages
+		move_cmd.linear.x = x_dist/stepsizeFloat;
+		move_cmd.linear.y = y_dist/stepsizeFloat;
+		velocity_publisher.publish(move_cmd); // Publish the command velocity
+		ROS_INFO("X Velocity: %f\n Y Velocity: %f\n", move_cmd.linear.x, move_cmd.linear.y);
+	}
+	
+	move_cmd.linear.x = 0;
+	move_cmd.linear.y = 0;
+	velocity_publisher.publish(move_cmd); // Publish the command velocity
 
         // Publish velocity that you get from controller
-        // velocity_publisher.publish(vel); // Publish the command velocity
+        //velocity_publisher.publish(move_cmd); // Publish the command velocity
     }
 
     return 0;

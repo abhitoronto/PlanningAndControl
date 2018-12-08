@@ -59,6 +59,9 @@
   <run_depend>tf</run_depend>
   <run_depend>visualization_msgs</run_depend>
 
+  <build_depend>eigen3</build_depend>
+  <build_depend>cmake_modules</build_depend>
+
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
