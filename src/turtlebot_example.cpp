@@ -114,14 +114,15 @@ void mapTimerCallback(const ros::TimerEvent& e)
 }
 
 //Example of drawing a curve
-void drawCurve(int k) 
+void drawCurve(pose2d_t p1, pose2d_t p2, double colourR, double colourB) 
 {
    // Curves are drawn as a series of stright lines
    // Simply sample your curves into a series of points
 
-   double x = 0;
-   double y = 0;
-   double steps = 50;
+   double x = p1.x;
+   double y = p1.y;
+   double steps = 100;
+   double k = p1.x + p1.y + p2.x + p2.y;
 
    visualization_msgs::Marker lines;
    lines.header.frame_id = "/map";
@@ -130,8 +131,8 @@ void drawCurve(int k)
    lines.action = visualization_msgs::Marker::ADD;
    lines.ns = "curves";
    lines.scale.x = 0.1;
-   lines.color.r = 1.0;
-   lines.color.b = 0.2*k;
+   lines.color.r = colourR;
+   lines.color.b = colourB;
    lines.color.a = 1.0;
 
    //generate curve points
@@ -143,13 +144,12 @@ void drawCurve(int k)
        lines.points.push_back(p); 
 
        //curve model
-       x = x+0.1;
-       y = sin(0.1*i*k);   
+       x = x+((p2.x-p1.x)/steps);
+       y = y+((p2.y-p1.y)/steps);
    }
 
    //publish new curve
    marker_pub.publish(lines);
-
 }
 
 void printMap(const MapInfo_t& map)
@@ -185,6 +185,92 @@ void map_callback(const nav_msgs::OccupancyGrid& msg)
     gridMap.valid = true;
     //print the map captured
     printMap(gridMap);
+}
+
+//Inflates the map
+MapInfo_t map_inflation(MapInfo_t originalMap, uint32_t inflationSize)
+{
+    MapInfo_t inflatedMap = originalMap;
+    uint32_t width = inflatedMap.width;
+    for (uint32_t in = 0; in < inflationSize; in++)
+    {    
+        //ROS_INFO("POINT A");
+        for (uint32_t it = 0; it < inflatedMap.size; it++)
+        {
+            //ROS_INFO("POINT B @ %d of %d is %d", it, inflatedMap.size, inflatedMap.data[it]);
+            //if an obstacle point, inflate it in all eight directions
+            if (inflatedMap.data[it] == 100)
+            {
+                //ROS_INFO("POINT C1 @ %d", it);
+                //right
+                if ((it+1) < inflatedMap.size && ((it+1)%width) != 0 && inflatedMap.data[it+1] == 0)
+                {
+                    //ROS_INFO("POINT R @ %d", it);
+                    inflatedMap.data[it+1] = 2;
+                }
+                //ROS_INFO("POINT C2 @ %d", it);
+                //left
+                if (it >= 1 && (it%width) != 0 && inflatedMap.data[it-1] == 0)
+                {
+                    //ROS_INFO("POINT L @ %d", it);
+                    inflatedMap.data[it-1] = 2;
+                }
+                //ROS_INFO("POINT C3 @ %d", it);
+                //up
+                if (it >= width && inflatedMap.data[it-width] == 0)
+                {
+                    //ROS_INFO("POINT U @ %d", it);
+                    inflatedMap.data[it-width] = 2;
+                }
+                //ROS_INFO("POINT C4 @ %d", it);
+                //down
+                if ((it+width) < inflatedMap.size && inflatedMap.data[it+width] == 0)
+                {
+                    //ROS_INFO("POINT D @ %d", it);
+                    inflatedMap.data[it+width] = 2;
+                }
+                //ROS_INFO("POINT C5 @ %d", it);
+                //up right
+                if ((it+1) >= width && it >= width && ((it+1)%width) != 0 && inflatedMap.data[it-width+1] == 0)
+                {
+                    //ROS_INFO("POINT UR @ %d", it);
+                    inflatedMap.data[it-width+1] = 2;
+                }
+                //ROS_INFO("POINT C6 @ %d", it);
+                //up left
+                if (it >= (width+1) && it >= width && (it%width) != 0 && inflatedMap.data[it-width-1] == 0)
+                {
+                    //ROS_INFO("POINT UL @ %d", it);
+                    inflatedMap.data[it-width-1] = 2;
+                }
+                //ROS_INFO("POINT C7 @ %d", it);
+                //down right
+                if ((it+width+1) >= 0 && (it+width) < inflatedMap.size && ((it+1)%width) != 0 && inflatedMap.data[it+width+1] == 0)
+                {
+                    //ROS_INFO("POINT DR @ %d", it);
+                    inflatedMap.data[it+width+1] = 2;
+                }
+                //ROS_INFO("POINT C8 @ %d", it);
+                //down left
+                if ((it+width) >= 1 && (it+width) < inflatedMap.size && (it%width) != 0 && inflatedMap.data[it+width-1] == 0)
+                {
+                    //ROS_INFO("POINT DL @ %d", it);
+                    inflatedMap.data[it+width-1] = 2;
+                }
+            }
+        }
+        //change 2s to 1s
+        for (uint32_t it = 0; it < inflatedMap.size; it++)
+        {
+            if (inflatedMap.data[it] == 2)
+            {
+                inflatedMap.data[it] = 100;
+            }
+        }
+    }
+    //print the map inflated
+    printMap(inflatedMap);
+    return inflatedMap;
 }
 
 void initGoals()
@@ -494,6 +580,9 @@ int main(int argc, char **argv)
     //Set the loop rate
     ros::Rate loop_rate(20);    //20Hz update rate
 
+    //Inflation flag
+    bool inflationOccurred = false;
+
     while (ros::ok())
     {
     	loop_rate.sleep(); //Maintain the loop rate
@@ -510,6 +599,12 @@ int main(int argc, char **argv)
             }
             continue;
         }
+	    if(!inflationOccurred && gridMap.valid)
+	    {
+	        gridMap = map_inflation(gridMap, 2);
+	        inflationOccurred = true;
+            printMap(gridMap);
+	    }
 
     	//Main loop code goes here:
     	// vel.linear.x = 0.1; // set linear speed
@@ -533,12 +628,12 @@ int main(int argc, char **argv)
                 
                 // Run Planning function based on the map given
                 wayPoints.clear();
-                plan2dPath(currPose,
+                /*plan2dPath(currPose,
                            goals[currGoal], 
                            wayPoints, 
                            gridMap,
                            NUM_RAND_POINTS, 
-                           NUM_NEAREST_NEIGHBOURS);
+                           NUM_NEAREST_NEIGHBOURS);*/
                 currWp = 0;
             }
 
@@ -550,6 +645,20 @@ int main(int argc, char **argv)
             }
         }
 
+        
+        pose2d_t POSE1;
+        POSE1.x = 0.1; POSE1.y = 0.2; POSE1.angle = 0;
+        pose2d_t POSE2;
+        POSE2.x = 4.1; POSE2.y = 4.2; POSE2.angle = 0;
+        drawCurve(POSE1, POSE2, 1,1); //purple
+        POSE2.x = 3.1; POSE2.y = 4.2; POSE2.angle = 0;
+        drawCurve(POSE1, POSE2, 1,0); //red
+        POSE2.x = 2.1; POSE2.y = 4.2; POSE2.angle = 0;
+        drawCurve(POSE1, POSE2, 0,1); //blue
+        POSE2.x = 1.1; POSE2.y = 4.2; POSE2.angle = 0;
+        drawCurve(POSE1, POSE2, 0,0); //black
+        POSE2.x = 0.1; POSE2.y = 4.2; POSE2.angle = 0;
+        drawCurve(POSE1, POSE2, 0.5,0.5); //dark purple
         // Get current waypoint
         // if robot has reached waypoint
             // increment waypoint
