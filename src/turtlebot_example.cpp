@@ -124,11 +124,11 @@ void mapTimerCallback(const ros::TimerEvent& e)
 void drawPoints(std::vector<pose2d_t> points, double colourR, double colourB) 
 {
     double steps = points.size();
-    volatile static int k = 0;
+    int k = 0;
 
     visualization_msgs::Marker visPoints;
     visPoints.header.frame_id = "/map";
-    visPoints.id = k++; //each curve must have a unique id or you will overwrite an old ones
+    visPoints.id = k; //each curve must have a unique id or you will overwrite an old ones
     visPoints.type = visualization_msgs::Marker::POINTS;
     visPoints.action = visualization_msgs::Marker::ADD;
     visPoints.ns = "point";
@@ -813,19 +813,19 @@ int main(int argc, char **argv)
                 ROS_INFO("REACHED GOAL: %f,%f,%f", goals[currGoal].x,
                                                 goals[currGoal].y,
                                                 goals[currGoal].angle);
-                //TODO: put this inside plan2dPath if statement
-                // increment current goal
-                currGoal++;
 
                 // Run Planning function based on the map given
                 wayPoints.clear();
-                if (plan2dPath(currPose,
-                           goals[currGoal], 
-                           wayPoints, 
-                           gridMap,
-                           NUM_RAND_POINTS, 
-                           NUM_NEAREST_NEIGHBOURS))
+                volatile bool pathFound = plan2dPath(currPose,
+                                            goals[currGoal + 1], 
+                                            wayPoints, 
+                                            gridMap,
+                                            NUM_RAND_POINTS, 
+                                            NUM_NEAREST_NEIGHBOURS);
+                if (pathFound)
                 {
+                    // increment current goal
+                    currGoal++;
                     ROS_INFO("NEXT GOAL: %f,%f,%f", goals[currGoal].x,
                                                     goals[currGoal].y,
                                                     goals[currGoal].angle); 
@@ -842,11 +842,14 @@ int main(int argc, char **argv)
             }
         }
 
-        // Visualize all waypoints
-        drawLine(currPose, wayPoints[currWp], BLUE);
-        for(uint32_t i = currWp; i < wayPoints.size()-1; i++)
+        if (wayPoints.size() > 0)
         {
-            drawLine(wayPoints[i], wayPoints[i+1], BLUE);
+            // Visualize all waypoints
+            drawLine(currPose, wayPoints[currWp], BLUE);
+            for(uint32_t i = currWp; i < wayPoints.size()-1; i++)
+            {
+                drawLine(wayPoints[i], wayPoints[i+1], BLUE);
+            }
         }
 
         // Get current waypoint
